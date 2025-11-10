@@ -1,35 +1,25 @@
-# --- Unity essentials ---
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
 [Bb]uild/
 [Bb]uilds/
 [Ll]ogs/
-[Mm]emoryCaptures/
 UserSettings/
-# Cache packages (keep manifest & lock)
-Packages/PackageCache/
-
-# OS/editor noise
+MemoryCaptures/
+Recordings/
+[Bb]uilds*/
+Assets/StreamingAssets/aa.meta
+Assets/StreamingAssets/aa/*
+*.csproj
+*.unityproj
+*.sln
+*.user
+*.tmp
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
 .DS_Store
-*.swp
-*.swo
-
-# Visual/IDE
-.vscode/
-*.code-workspace
-
-# Unity generated
-*.unitypackage
-
-# Crash dumps
-*.dmp
-
-# Lightmaps, GI cache
-**/Lightmap-*
-**/GICache/
-
-# If you export raw data/output folders, ignore them too:
-# outputs/
-# data/
-
