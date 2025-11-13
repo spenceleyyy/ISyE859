@@ -26,13 +26,13 @@ public class PerchTaskLogger : MonoBehaviour
 
         using (var writer = new StreamWriter(_filePath, false))
         {
-            writer.WriteLine("Timestamp,EventType,PerchIndex,RigPosX,RigPosY,RigPosZ");
+            writer.WriteLine("Timestamp,EventType,PerchIndex,RigPosX,RigPosY,RigPosZ,ExtraData");
         }
 
         _headerWritten = true;
     }
 
-    public void LogEvent(string eventType, int perchIndex, Vector3 rigPosition)
+    public void LogEvent(string eventType, int perchIndex, Vector3 rigPosition, string extraData = "")
     {
         if (string.IsNullOrEmpty(_filePath))
             return;
@@ -41,14 +41,17 @@ public class PerchTaskLogger : MonoBehaviour
             WriteHeaderIfNeeded();
 
         string timestamp = System.DateTime.Now.ToString("o"); // ISO 8601
+        string sanitized = string.IsNullOrEmpty(extraData) ? string.Empty : extraData.Replace(',', ';');
+
         string line = string.Format(
-            "{0},{1},{2},{3:F4},{4:F4},{5:F4}",
+            "{0},{1},{2},{3:F4},{4:F4},{5:F4},{6}",
             timestamp,
             eventType,
             perchIndex,
             rigPosition.x,
             rigPosition.y,
-            rigPosition.z
+            rigPosition.z,
+            sanitized
         );
 
         using (var writer = new StreamWriter(_filePath, true))

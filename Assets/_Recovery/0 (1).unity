@@ -609,32 +609,12 @@ MonoBehaviour:
   - {fileID: 2099094126}
   - {fileID: 217870710}
   logger: {fileID: 0}
-  autoAddPerchColliders: 1
-  deriveColliderFromRenderers: 1
-  perchColliderSize: {x: 0.4, y: 0.4, z: 0.4}
-  perchColliderCenter: {x: 0, y: 0, z: 0}
-  addTriggerVolume: 0
-  triggerPadding: 0.05
   perchRadius: 3
   requiredPerchTime: 10
   requireLandingConfirmation: 1
   landingKey: 32
   snapRigToPerch: 1
   landingPositionOffset: {x: 0, y: 0, z: 0}
-  showGuidanceArrow: 1
-  guidanceLine: {fileID: 0}
-  guidanceColor: {r: 0.2, g: 0.9, b: 1, a: 0.85}
-  guidanceWidth: 0.03
-  guidanceCurveLift: 0.4
-  guidanceTargetLift: 0.05
-  guidanceSegments: 32
-  guidanceArrowHeadLength: 0.25
-  guidanceArrowHeadAngle: 25
-  enforcePerchCollision: 1
-  rigCollisionRadius: 0.25
-  perchCollisionPadding: 0.05
-  perchCollisionLayer: -1
-  dampVelocityOnCollision: 1
   trackMovementEfficiency: 1
   minEfficiencyDistance: 0.05
   useFuelSystem: 1
@@ -978,7 +958,7 @@ Transform:
   m_GameObject: {fileID: 1277894384}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0.65013593, z: -0, w: 0.7598179}
-  m_LocalPosition: {x: -317.4997, y: 0, z: 0.24134}
+  m_LocalPosition: {x: -354.4, y: 0, z: -7.3}
   m_LocalScale: {x: 0.05, y: 0.05, z: 0.05}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1020,7 +1000,6 @@ GameObject:
   - component: {fileID: 1311690587}
   - component: {fileID: 1311690588}
   - component: {fileID: 1311690589}
-  - component: {fileID: 1311690590}
   m_Layer: 0
   m_Name: XR Origin (VR)
   m_TagString: Untagged
@@ -1053,14 +1032,14 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1311690584}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0.30159968, z: -0, w: 0.9534347}
+  m_LocalRotation: {x: -0, y: -0.9513427, z: -0, w: 0.3081348}
   m_LocalPosition: {x: -235.5, y: 51.85, z: -103.2}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 824752289}
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: -35.107, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: -144.106, z: 0}
 --- !u!114 &1311690587
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1087,28 +1066,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3c9f7955f31d842678293fa8ba44e2c1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::KeyboardRigMover
-  rigBody: {fileID: 0}
-  orientationTransform: {fileID: 0}
-  rigCollider: {fileID: 0}
-  colliderRadius: 0.2
-  colliderHeight: 0.6
-  colliderCenter: {x: 0, y: -0.1, z: 0}
-  forwardAcceleration: 4
-  strafeAcceleration: 3
-  verticalAcceleration: 2
-  yawTorque: 6
-  maxLinearSpeed: 2.5
-  maxAngularSpeed: 60
-  overrideGlobalGravity: 0
-  zeroGravityVector: {x: 0, y: 0, z: 0}
-  velocityDamping: 0.4
-  angularDamping: 0.2
-  thrusterAudio: {fileID: 0}
-  maxThrusterVolume: 0.5
-  audioResponseSpeed: 6
-  audioPitchJitter: 0.2
-  ascendKey: 304
-  descendKey: 306
+  moveSpeed: 2
+  rotateSpeed: 60
 --- !u!114 &1311690589
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1153,33 +1112,6 @@ MonoBehaviour:
       m_SingletonActionBindings: []
       m_Flags: 0
     m_Reference: {fileID: 0}
---- !u!54 &1311690590
-Rigidbody:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1311690584}
-  serializedVersion: 5
-  m_Mass: 1
-  m_LinearDamping: 0
-  m_AngularDamping: 0.05
-  m_CenterOfMass: {x: 0, y: 0, z: 0}
-  m_InertiaTensor: {x: 1, y: 1, z: 1}
-  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ImplicitCom: 1
-  m_ImplicitTensor: 1
-  m_UseGravity: 1
-  m_IsKinematic: 0
-  m_Interpolate: 0
-  m_Constraints: 0
-  m_CollisionDetection: 0
 --- !u!1 &1487064795
 GameObject:
   m_ObjectHideFlags: 0
@@ -1319,13 +1251,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1588592681}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalRotation: {x: -0, y: 0.63521457, z: -0, w: 0.7723357}
+  m_LocalPosition: {x: 0, y: -0.00000047683716, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 824752289}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 78.872, z: 0}
 --- !u!114 &1588592683
 MonoBehaviour:
   m_ObjectHideFlags: 0

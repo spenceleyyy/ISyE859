@@ -2,36 +2,275 @@ using UnityEngine;
 
 public class KeyboardRigMover : MonoBehaviour
 {
-    public float moveSpeed = 2f;
-    public float rotateSpeed = 60f;
+    [Header("References")]
+    public Rigidbody rigBody;
+    [Tooltip("Optional orientation reference (e.g., XR Camera). Defaults to this transform.")]
+    public Transform orientationTransform;
+    [Tooltip("Auto-assign Camera.main as the orientation reference if none is provided.")]
+    public bool autoAssignOrientationFromCamera = true;
+    [Tooltip("Project the camera forward/right onto the horizontal plane so WASD stays level.")]
+    public bool keepMovementLevel = true;
+    [Tooltip("Optional collider representing the rig body. Added automatically if missing.")]
+    public Collider rigCollider;
+    public float colliderRadius = 0.2f;
+    public float colliderHeight = 0.6f;
+    public Vector3 colliderCenter = new Vector3(0f, -0.1f, 0f);
+
+    [Header("Thruster Forces")]
+    public float forwardAcceleration = 4f;
+    public float strafeAcceleration = 3f;
+    public float verticalAcceleration = 2f;
+    public float yawTorque = 6f;
+    public float maxLinearSpeed = 2.5f;
+    public float maxAngularSpeed = 60f;
+
+    [Header("Zero Gravity")]
+    public bool overrideGlobalGravity = false;
+    public Vector3 zeroGravityVector = Vector3.zero;
+    public float velocityDamping = 0.4f;
+    public float angularDamping = 0.2f;
+
+    [Header("Audio")]
+    public AudioSource thrusterAudio;
+    public float maxThrusterVolume = 0.5f;
+    public float audioResponseSpeed = 6f;
+    public float audioPitchJitter = 0.2f;
+
+    [Header("Input")]
+    public KeyCode ascendKey = KeyCode.LeftShift;
+    public KeyCode descendKey = KeyCode.LeftControl;
+
+    public float CurrentThrustIntensity { get; private set; }
+
+    private Vector3 _pendingLinearInput;
+    private float _pendingYawInput;
+    private Vector3 _cachedGravity;
+
+    private void Awake()
+    {
+        if (rigBody == null)
+            rigBody = GetComponent<Rigidbody>();
+        if (rigBody == null)
+            rigBody = GetComponentInParent<Rigidbody>();
+        if (rigBody == null)
+        {
+            rigBody = gameObject.AddComponent<Rigidbody>();
+            Debug.LogWarning("KeyboardRigMover: Added missing Rigidbody. For best stability, assign the XR Origin root Rigidbody explicitly.");
+        }
+
+        if (orientationTransform == null)
+        {
+            orientationTransform = transform;
+        }
+
+        EnsureOrientationReference();
+
+        if (rigCollider == null)
+        {
+            rigCollider = GetComponent<Collider>();
+        }
+        if (rigCollider == null && rigBody != null)
+        {
+            rigCollider = rigBody.GetComponent<Collider>();
+        }
+        if (rigCollider == null)
+        {
+            CapsuleCollider capsule = gameObject.AddComponent<CapsuleCollider>();
+            capsule.radius = Mathf.Max(0.05f, colliderRadius);
+            capsule.height = Mathf.Max(capsule.radius * 2f, colliderHeight);
+            capsule.center = colliderCenter;
+            capsule.direction = 1; // Y axis
+            rigCollider = capsule;
+        }
+        else if (rigCollider is CapsuleCollider existingCapsule)
+        {
+            existingCapsule.radius = Mathf.Max(0.05f, colliderRadius);
+            existingCapsule.height = Mathf.Max(existingCapsule.radius * 2f, colliderHeight);
+            existingCapsule.center = colliderCenter;
+        }
+
+        if (rigCollider != null)
+        {
+            rigCollider.isTrigger = false;
+        }
+
+        rigBody.useGravity = false;
+        rigBody.detectCollisions = true;
+        rigBody.interpolation = RigidbodyInterpolation.Interpolate;
+        rigBody.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+
+        if (thrusterAudio != null)
+        {
+            thrusterAudio.loop = true;
+            thrusterAudio.playOnAwake = false;
+            thrusterAudio.volume = 0f;
+        }
+    }
+
+    private void OnEnable()
+    {
+        if (overrideGlobalGravity)
+        {
+            _cachedGravity = Physics.gravity;
+            Physics.gravity = zeroGravityVector;
+        }
+    }
+
+    private void OnDisable()
+    {
+        if (overrideGlobalGravity)
+        {
+            Physics.gravity = _cachedGravity;
+        }
+    }
 
     private void Update()
     {
-        float move = 0f;
+        EnsureOrientationReference();
+
+        float forward = 0f;
         float strafe = 0f;
+        float vertical = 0f;
+        float yaw = 0f;
 
-        // Forward / back
         if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow))
-            move += 1f;
+            forward += 1f;
         if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow))
-            move -= 1f;
+            forward -= 1f;
 
-        // Left / right
         if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow))
             strafe += 1f;
         if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow))
             strafe -= 1f;
 
-        Vector3 direction = transform.forward * move + transform.right * strafe;
-        if (direction.sqrMagnitude > 0.0001f)
+        if (Input.GetKey(ascendKey))
+            vertical += 1f;
+        if (Input.GetKey(descendKey))
+            vertical -= 1f;
+
+        if (Input.GetKey(KeyCode.E))
+            yaw += 1f;
+        if (Input.GetKey(KeyCode.Q))
+            yaw -= 1f;
+
+        _pendingLinearInput = new Vector3(strafe * strafeAcceleration, vertical * verticalAcceleration, forward * forwardAcceleration);
+        _pendingYawInput = yaw * yawTorque;
+
+        float thrustIntensity = Mathf.Clamp01(_pendingLinearInput.magnitude / Mathf.Max(0.0001f, forwardAcceleration + strafeAcceleration + verticalAcceleration) + Mathf.Abs(_pendingYawInput) / Mathf.Max(0.0001f, yawTorque));
+        CurrentThrustIntensity = thrustIntensity;
+        UpdateThrusterAudio(thrustIntensity);
+    }
+
+    private void FixedUpdate()
+    {
+        if (_pendingLinearInput.sqrMagnitude > 0.0001f)
         {
-            transform.position += direction.normalized * moveSpeed * Time.deltaTime;
+            Transform orient = orientationTransform != null ? orientationTransform : transform;
+            Vector3 forward = orient.forward;
+            Vector3 right = orient.right;
+            Vector3 up = orient.up;
+
+            if (keepMovementLevel)
+            {
+                forward = Vector3.ProjectOnPlane(forward, Vector3.up);
+                right = Vector3.ProjectOnPlane(right, Vector3.up);
+                up = Vector3.up;
+            }
+
+            if (forward.sqrMagnitude < 0.0001f)
+                forward = transform.forward;
+            if (right.sqrMagnitude < 0.0001f)
+                right = transform.right;
+
+            forward.Normalize();
+            right.Normalize();
+
+            Vector3 worldAccel =
+                right * _pendingLinearInput.x +
+                up * _pendingLinearInput.y +
+                forward * _pendingLinearInput.z;
+
+            rigBody.AddForce(worldAccel, ForceMode.Acceleration);
         }
 
-        // Rotate with Q/E
-        if (Input.GetKey(KeyCode.Q))
-            transform.Rotate(0f, -rotateSpeed * Time.deltaTime, 0f);
-        if (Input.GetKey(KeyCode.E))
-            transform.Rotate(0f, rotateSpeed * Time.deltaTime, 0f);
+        if (Mathf.Abs(_pendingYawInput) > 0.0001f)
+        {
+            rigBody.AddTorque(Vector3.up * _pendingYawInput, ForceMode.Acceleration);
+        }
+
+        ApplyDamping();
+        ClampVelocities();
+
+        _pendingLinearInput = Vector3.zero;
+        _pendingYawInput = 0f;
+    }
+
+    private void ApplyDamping()
+    {
+        if (velocityDamping > 0f && rigBody.linearVelocity.sqrMagnitude > 0.0001f)
+        {
+            Vector3 dampingForce = -rigBody.linearVelocity * velocityDamping;
+            rigBody.AddForce(dampingForce, ForceMode.Acceleration);
+        }
+
+        if (angularDamping > 0f && rigBody.angularVelocity.sqrMagnitude > 0.0001f)
+        {
+            Vector3 angularDamp = -rigBody.angularVelocity * angularDamping;
+            rigBody.AddTorque(angularDamp, ForceMode.Acceleration);
+        }
+    }
+
+    private void ClampVelocities()
+    {
+        if (maxLinearSpeed > 0f && rigBody.linearVelocity.sqrMagnitude > maxLinearSpeed * maxLinearSpeed)
+        {
+            rigBody.linearVelocity = rigBody.linearVelocity.normalized * maxLinearSpeed;
+        }
+
+        if (maxAngularSpeed > 0f)
+        {
+            float maxRad = maxAngularSpeed * Mathf.Deg2Rad;
+            if (rigBody.angularVelocity.sqrMagnitude > maxRad * maxRad)
+            {
+                rigBody.angularVelocity = rigBody.angularVelocity.normalized * maxRad;
+            }
+        }
+    }
+
+    private void EnsureOrientationReference()
+    {
+        if (orientationTransform != null)
+            return;
+
+        if (!autoAssignOrientationFromCamera)
+            return;
+
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            orientationTransform = cam.transform;
+        }
+    }
+
+    private void UpdateThrusterAudio(float intensity)
+    {
+        if (thrusterAudio == null)
+            return;
+
+        float targetVolume = Mathf.Clamp01(intensity) * maxThrusterVolume;
+        bool hasThrust = targetVolume > 0.01f;
+
+        if (hasThrust && !thrusterAudio.isPlaying)
+        {
+            thrusterAudio.Play();
+        }
+
+        thrusterAudio.volume = Mathf.MoveTowards(thrusterAudio.volume, targetVolume, Time.deltaTime * audioResponseSpeed);
+        thrusterAudio.pitch = 1f + audioPitchJitter * Mathf.Clamp01(intensity);
+
+        if (!hasThrust && thrusterAudio.isPlaying && Mathf.Approximately(thrusterAudio.volume, 0f))
+        {
+            thrusterAudio.Stop();
+        }
     }
 }
