@@ -12,7 +12,11 @@ public class TeleopPerchTaskController : MonoBehaviour
     [Header("Perch Colliders")]
     [Tooltip("Automatically add/update solid colliders on each perch point.")]
     public bool autoAddPerchColliders = true;
-    [Tooltip("Derive the collider size from the perch's Renderer bounds.")]
+    [Tooltip("Use MeshCollider instead of BoxCollider for each perch.")]
+    public bool useMeshCollider = true;
+    [Tooltip("When using MeshCollider, set Convex so Unity allows dynamic interaction.")]
+    public bool meshColliderConvex = true;
+    [Tooltip("Derive the box collider size from the perch's Renderer bounds (ignored for mesh colliders).")]
     public bool deriveColliderFromRenderers = true;
     public Vector3 perchColliderSize = new Vector3(0.8f, 0.8f, 0.8f);
     public Vector3 perchColliderCenter = Vector3.zero;
@@ -101,7 +105,7 @@ public class TeleopPerchTaskController : MonoBehaviour
     private float _currentFuel;
     private bool _fuelLowRaised = false;
     private bool _fuelDepleted = false;
-    private bool _readyToLand = false;
+    private bool _readyToLand;
     private Rigidbody _xrRigidbody;
     private Collider _xrCollider;
 
@@ -421,14 +425,42 @@ public class TeleopPerchTaskController : MonoBehaviour
         {
             if (perch == null) continue;
 
-            BoxCollider blocking = perch.GetComponent<BoxCollider>();
-            if (blocking == null)
+            Collider blocking;
+            if (useMeshCollider)
             {
-                blocking = perch.gameObject.AddComponent<BoxCollider>();
-                Debug.Log($"TeleopPerchTaskController: Added BoxCollider to {perch.name}");
-            }
+                MeshCollider meshCollider = perch.GetComponent<MeshCollider>();
+                if (meshCollider == null)
+                {
+                    meshCollider = perch.gameObject.AddComponent<MeshCollider>();
+                    Debug.Log($"TeleopPerchTaskController: Added MeshCollider to {perch.name}");
+                }
 
-            ConfigureBlockingCollider(perch, blocking);
+                MeshFilter filter = perch.GetComponent<MeshFilter>();
+                if (filter != null && filter.sharedMesh != null)
+                {
+                    meshCollider.sharedMesh = filter.sharedMesh;
+                }
+                else if (meshCollider.sharedMesh == null)
+                {
+                    Debug.LogWarning($"TeleopPerchTaskController: {perch.name} has no MeshFilter. MeshCollider will use default cube mesh.");
+                }
+
+                meshCollider.convex = meshColliderConvex;
+                meshCollider.isTrigger = false;
+                blocking = meshCollider;
+            }
+            else
+            {
+                BoxCollider boxCollider = perch.GetComponent<BoxCollider>();
+                if (boxCollider == null)
+                {
+                    boxCollider = perch.gameObject.AddComponent<BoxCollider>();
+                    Debug.Log($"TeleopPerchTaskController: Added BoxCollider to {perch.name}");
+                }
+
+                ConfigureBlockingCollider(perch, boxCollider);
+                blocking = boxCollider;
+            }
 
             if (addTriggerVolume)
             {

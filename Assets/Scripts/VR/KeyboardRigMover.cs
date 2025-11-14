@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.XR.CoreUtils;
 
 public class KeyboardRigMover : MonoBehaviour
 {
@@ -6,7 +7,9 @@ public class KeyboardRigMover : MonoBehaviour
     public Rigidbody rigBody;
     [Tooltip("Optional orientation reference (e.g., XR Camera). Defaults to this transform.")]
     public Transform orientationTransform;
-    [Tooltip("Auto-assign Camera.main as the orientation reference if none is provided.")]
+    [Tooltip("Optional XR Origin used to locate the camera when auto-assigning orientation.")]
+    public XROrigin xrOrigin;
+    [Tooltip("Auto-assign orientation from the XR Origin camera (falls back to Camera.main).")]
     public bool autoAssignOrientationFromCamera = true;
     [Tooltip("Project the camera forward/right onto the horizontal plane so WASD stays level.")]
     public bool keepMovementLevel = true;
@@ -45,6 +48,8 @@ public class KeyboardRigMover : MonoBehaviour
     private Vector3 _pendingLinearInput;
     private float _pendingYawInput;
     private Vector3 _cachedGravity;
+    private bool _warnedMissingOrientation = false;
+    private Transform _lastOrientationTransform;
 
     private void Awake()
     {
@@ -58,12 +63,14 @@ public class KeyboardRigMover : MonoBehaviour
             Debug.LogWarning("KeyboardRigMover: Added missing Rigidbody. For best stability, assign the XR Origin root Rigidbody explicitly.");
         }
 
+        if (xrOrigin == null)
+            xrOrigin = GetComponentInParent<XROrigin>();
+
+        EnsureOrientationReference();
         if (orientationTransform == null)
         {
             orientationTransform = transform;
         }
-
-        EnsureOrientationReference();
 
         if (rigCollider == null)
         {
@@ -173,16 +180,30 @@ public class KeyboardRigMover : MonoBehaviour
             if (keepMovementLevel)
             {
                 forward = Vector3.ProjectOnPlane(forward, Vector3.up);
-                right = Vector3.ProjectOnPlane(right, Vector3.up);
+                if (forward.sqrMagnitude < 0.0001f)
+                    forward = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+                forward.Normalize();
+
                 up = Vector3.up;
+                right = Vector3.Cross(up, forward);
+                if (right.sqrMagnitude < 0.0001f)
+                    right = Vector3.Cross(up, transform.forward);
+            }
+            else
+            {
+                if (forward.sqrMagnitude < 0.0001f)
+                    forward = transform.forward;
+                if (right.sqrMagnitude < 0.0001f)
+                    right = transform.right;
+                forward.Normalize();
+                right.Normalize();
+                up.Normalize();
             }
 
-            if (forward.sqrMagnitude < 0.0001f)
-                forward = transform.forward;
             if (right.sqrMagnitude < 0.0001f)
-                right = transform.right;
-
-            forward.Normalize();
+            {
+                right = Vector3.Cross(up, forward);
+            }
             right.Normalize();
 
             Vector3 worldAccel =
@@ -240,15 +261,63 @@ public class KeyboardRigMover : MonoBehaviour
     private void EnsureOrientationReference()
     {
         if (orientationTransform != null)
+        {
+            _warnedMissingOrientation = false;
+            _lastOrientationTransform = orientationTransform;
             return;
+        }
 
         if (!autoAssignOrientationFromCamera)
-            return;
-
-        Camera cam = Camera.main;
-        if (cam != null)
         {
-            orientationTransform = cam.transform;
+            if (!_warnedMissingOrientation)
+            {
+                Debug.LogWarning("KeyboardRigMover: orientationTransform is null and auto-assign is disabled. Movement will use this GameObject's transform.");
+                _warnedMissingOrientation = true;
+            }
+            return;
+        }
+
+        Transform cameraTransform = null;
+        if (xrOrigin != null)
+        {
+            var xrCamera = xrOrigin.Camera;
+            if (xrCamera != null)
+            {
+                cameraTransform = xrCamera.transform;
+            }
+            else if (xrOrigin.CameraFloorOffsetObject != null)
+            {
+                cameraTransform = xrOrigin.CameraFloorOffsetObject.transform.GetComponentInChildren<Camera>()?.transform;
+            }
+        }
+
+        if (cameraTransform == null)
+        {
+            Camera cam = Camera.main;
+            if (cam == null)
+            {
+                cam = FindFirstObjectByType<Camera>();
+            }
+            if (cam != null)
+                cameraTransform = cam.transform;
+        }
+
+        if (cameraTransform != null)
+        {
+            orientationTransform = cameraTransform;
+            _warnedMissingOrientation = false;
+            if (_lastOrientationTransform != orientationTransform)
+            {
+                Debug.Log($"KeyboardRigMover: Orientation set to {orientationTransform.name}");
+                _lastOrientationTransform = orientationTransform;
+            }
+            return;
+        }
+
+        if (!_warnedMissingOrientation)
+        {
+            Debug.LogWarning("KeyboardRigMover: Could not locate a camera to derive orientation from. Movement will use this GameObject's forward.");
+            _warnedMissingOrientation = true;
         }
     }
 
