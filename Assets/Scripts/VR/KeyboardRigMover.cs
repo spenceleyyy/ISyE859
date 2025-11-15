@@ -1,8 +1,39 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Unity.XR.CoreUtils;
 
 public class KeyboardRigMover : MonoBehaviour
 {
+    [System.Serializable]
+    public enum ThrusterInputType
+    {
+        Forward,
+        Backward,
+        StrafeRight,
+        StrafeLeft,
+        VerticalUp,
+        VerticalDown,
+        YawRight,
+        YawLeft
+    }
+
+    [System.Serializable]
+    public class DirectionalThrusterAudio
+    {
+        public ThrusterInputType inputType = ThrusterInputType.Forward;
+        [Tooltip("AudioSource to drive (optional). Leave empty to spawn one using the clip below.")]
+        public AudioSource audioSource;
+        [Tooltip("Clip used for this thruster. Required if the AudioSource slot is empty or has no clip.")]
+        public AudioClip clip;
+        public float maxVolume = 0.35f;
+        public float responseSpeed = 10f;
+        public float basePitch = 1f;
+        public float pitchVariance = 0.1f;
+        [Range(0f, 1f)] public float spatialBlend = 0f;
+        public bool spatialize = false;
+        [HideInInspector] public bool isPlaying;
+    }
+
     [Header("References")]
     public Rigidbody rigBody;
     [Tooltip("Optional orientation reference (e.g., XR Camera). Defaults to this transform.")]
@@ -38,6 +69,11 @@ public class KeyboardRigMover : MonoBehaviour
     public float maxThrusterVolume = 0.5f;
     public float audioResponseSpeed = 6f;
     public float audioPitchJitter = 0.2f;
+    [Tooltip("Optional audio layers for individual directional thrusters (so overlapping sounds never cut each other off).")]
+    public DirectionalThrusterAudio[] directionalThrusterAudio;
+    [Header("Debug Audio")]
+    public bool debugMainThrusterAudio = false;
+    public bool debugDirectionalThrusterAudio = false;
 
     [Header("Input")]
     public KeyCode ascendKey = KeyCode.LeftShift;
@@ -50,6 +86,8 @@ public class KeyboardRigMover : MonoBehaviour
     private Vector3 _cachedGravity;
     private bool _warnedMissingOrientation = false;
     private Transform _lastOrientationTransform;
+    private bool _mainThrusterIsPlaying = false;
+    private readonly HashSet<DirectionalThrusterAudio> _warnedDirectionalClip = new HashSet<DirectionalThrusterAudio>();
 
     private void Awake()
     {
@@ -112,6 +150,8 @@ public class KeyboardRigMover : MonoBehaviour
             thrusterAudio.playOnAwake = false;
             thrusterAudio.volume = 0f;
         }
+
+        InitializeDirectionalAudioSources();
     }
 
     private void OnEnable()
@@ -140,25 +180,58 @@ public class KeyboardRigMover : MonoBehaviour
         float vertical = 0f;
         float yaw = 0f;
 
+        bool forwardPositivePressed = false;
+        bool forwardNegativePressed = false;
+        bool strafeRightPressed = false;
+        bool strafeLeftPressed = false;
+        bool verticalUpPressed = false;
+        bool verticalDownPressed = false;
+        bool yawRightPressed = false;
+        bool yawLeftPressed = false;
+
         if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow))
+        {
             forward += 1f;
+            forwardPositivePressed = true;
+        }
         if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow))
+        {
             forward -= 1f;
+            forwardNegativePressed = true;
+        }
 
         if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow))
+        {
             strafe += 1f;
+            strafeRightPressed = true;
+        }
         if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow))
+        {
             strafe -= 1f;
+            strafeLeftPressed = true;
+        }
 
         if (Input.GetKey(ascendKey))
+        {
             vertical += 1f;
+            verticalUpPressed = true;
+        }
         if (Input.GetKey(descendKey))
+        {
             vertical -= 1f;
+            verticalDownPressed = true;
+        }
 
         if (Input.GetKey(KeyCode.E))
+        {
             yaw += 1f;
+            yawRightPressed = true;
+        }
         if (Input.GetKey(KeyCode.Q))
+        {
             yaw -= 1f;
+            yawLeftPressed = true;
+        }
 
         _pendingLinearInput = new Vector3(strafe * strafeAcceleration, vertical * verticalAcceleration, forward * forwardAcceleration);
         _pendingYawInput = yaw * yawTorque;
@@ -166,6 +239,15 @@ public class KeyboardRigMover : MonoBehaviour
         float thrustIntensity = Mathf.Clamp01(_pendingLinearInput.magnitude / Mathf.Max(0.0001f, forwardAcceleration + strafeAcceleration + verticalAcceleration) + Mathf.Abs(_pendingYawInput) / Mathf.Max(0.0001f, yawTorque));
         CurrentThrustIntensity = thrustIntensity;
         UpdateThrusterAudio(thrustIntensity);
+        UpdateDirectionalThrusterAudio(
+            forwardPositivePressed,
+            forwardNegativePressed,
+            strafeRightPressed,
+            strafeLeftPressed,
+            verticalUpPressed,
+            verticalDownPressed,
+            yawRightPressed,
+            yawLeftPressed);
     }
 
     private void FixedUpdate()
@@ -332,14 +414,180 @@ public class KeyboardRigMover : MonoBehaviour
         if (hasThrust && !thrusterAudio.isPlaying)
         {
             thrusterAudio.Play();
+            _mainThrusterIsPlaying = true;
+            if (debugMainThrusterAudio)
+            {
+                Debug.Log($"[KeyboardRigMover] Main thruster START (intensity={intensity:0.00})");
+            }
         }
 
-        thrusterAudio.volume = Mathf.MoveTowards(thrusterAudio.volume, targetVolume, Time.deltaTime * audioResponseSpeed);
+        thrusterAudio.volume = targetVolume;
         thrusterAudio.pitch = 1f + audioPitchJitter * Mathf.Clamp01(intensity);
 
-        if (!hasThrust && thrusterAudio.isPlaying && Mathf.Approximately(thrusterAudio.volume, 0f))
+        if (!hasThrust && thrusterAudio.isPlaying)
         {
             thrusterAudio.Stop();
+            if (_mainThrusterIsPlaying && debugMainThrusterAudio)
+            {
+                Debug.Log("[KeyboardRigMover] Main thruster STOP");
+            }
+            _mainThrusterIsPlaying = false;
         }
+    }
+
+    private void UpdateDirectionalThrusterAudio(
+        bool forwardPressed,
+        bool backwardPressed,
+        bool strafeRightPressed,
+        bool strafeLeftPressed,
+        bool verticalUpPressed,
+        bool verticalDownPressed,
+        bool yawRightPressed,
+        bool yawLeftPressed)
+    {
+        if (directionalThrusterAudio == null || directionalThrusterAudio.Length == 0)
+            return;
+
+        for (int i = 0; i < directionalThrusterAudio.Length; i++)
+        {
+            DirectionalThrusterAudio channel = directionalThrusterAudio[i];
+            if (channel == null)
+                continue;
+
+            AudioSource source = SetupDirectionalAudioSource(channel, false);
+            if (source == null)
+                continue;
+
+            bool isActive = IsDirectionActive(channel.inputType, forwardPressed, backwardPressed, strafeRightPressed, strafeLeftPressed, verticalUpPressed, verticalDownPressed, yawRightPressed, yawLeftPressed);
+            if (isActive)
+            {
+                if (!channel.isPlaying)
+                {
+                    source.Stop();
+                    source.time = 0f;
+                    source.Play();
+                    channel.isPlaying = true;
+                    if (debugDirectionalThrusterAudio)
+                    {
+                        Debug.Log($"[KeyboardRigMover] Thruster {channel.inputType} START");
+                    }
+                }
+
+                source.volume = channel.maxVolume;
+                source.pitch = channel.basePitch + channel.pitchVariance;
+            }
+            else if (channel.isPlaying || source.isPlaying)
+            {
+                source.Stop();
+                source.time = 0f;
+                source.volume = 0f;
+                source.pitch = channel.basePitch;
+                channel.isPlaying = false;
+                if (debugDirectionalThrusterAudio)
+                {
+                    Debug.Log($"[KeyboardRigMover] Thruster {channel.inputType} STOP");
+                }
+            }
+        }
+    }
+
+    private static bool IsDirectionActive(
+        ThrusterInputType type,
+        bool forwardPressed,
+        bool backwardPressed,
+        bool strafeRightPressed,
+        bool strafeLeftPressed,
+        bool verticalUpPressed,
+        bool verticalDownPressed,
+        bool yawRightPressed,
+        bool yawLeftPressed)
+    {
+        switch (type)
+        {
+            case ThrusterInputType.Forward:
+                return forwardPressed;
+            case ThrusterInputType.Backward:
+                return backwardPressed;
+            case ThrusterInputType.StrafeRight:
+                return strafeRightPressed;
+            case ThrusterInputType.StrafeLeft:
+                return strafeLeftPressed;
+            case ThrusterInputType.VerticalUp:
+                return verticalUpPressed;
+            case ThrusterInputType.VerticalDown:
+                return verticalDownPressed;
+            case ThrusterInputType.YawRight:
+                return yawRightPressed;
+            case ThrusterInputType.YawLeft:
+                return yawLeftPressed;
+            default:
+                return false;
+        }
+    }
+
+    private void InitializeDirectionalAudioSources()
+    {
+        if (directionalThrusterAudio == null)
+            return;
+
+        for (int i = 0; i < directionalThrusterAudio.Length; i++)
+        {
+            SetupDirectionalAudioSource(directionalThrusterAudio[i], true);
+        }
+    }
+
+    private AudioSource SetupDirectionalAudioSource(DirectionalThrusterAudio channel, bool resetVolume)
+    {
+        if (channel == null)
+            return null;
+
+        AudioSource src = channel.audioSource;
+        bool created = false;
+
+        if (src == null && channel.clip != null)
+        {
+            GameObject child = new GameObject($"ThrusterAudio_{channel.inputType}");
+            child.transform.SetParent(transform, false);
+            src = child.AddComponent<AudioSource>();
+            channel.audioSource = src;
+            created = true;
+        }
+
+        if (src == null)
+        {
+            WarnMissingDirectionalClip(channel);
+            return null;
+        }
+
+        if (src.clip == null && channel.clip != null)
+        {
+            src.clip = channel.clip;
+        }
+
+        if (src.clip == null)
+        {
+            WarnMissingDirectionalClip(channel);
+            return null;
+        }
+
+        src.loop = true;
+        src.playOnAwake = false;
+        if (created || resetVolume)
+        {
+            src.volume = 0f;
+        }
+        src.spatialBlend = Mathf.Clamp01(channel.spatialBlend);
+        src.spatialize = channel.spatialize;
+
+        return src;
+    }
+
+    private void WarnMissingDirectionalClip(DirectionalThrusterAudio channel)
+    {
+        if (channel == null || _warnedDirectionalClip.Contains(channel))
+            return;
+
+        Debug.LogWarning($"KeyboardRigMover: Directional thruster '{channel.inputType}' must define an AudioClip or AudioSource.");
+        _warnedDirectionalClip.Add(channel);
     }
 }
