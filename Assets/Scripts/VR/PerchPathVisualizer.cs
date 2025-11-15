@@ -45,7 +45,7 @@ public class PerchPathVisualizer : MonoBehaviour
 
 [Header("Manual Path")]
 [Tooltip("Override the procedural curve with explicit waypoints (useful for weaving around large structures).")]
-public bool useManualWaypoints = false;
+    public bool useManualWaypoints = false;
     [Tooltip("World-space waypoints visited in order when drawing the path.")]
     public Transform[] manualWaypoints;
     [Tooltip("Meters to lift each waypoint so the line doesn't overlap geometry.")]
@@ -61,12 +61,33 @@ public bool useManualWaypoints = false;
     };
     [Tooltip("When enabled, Catmull-Rom smoothing is applied through manual waypoints. Disable for straight segments passing exactly through each point.")]
     public bool manualUseSmoothCurve = true;
+    [Tooltip("Optional overrides that let you define unique waypoint paths per perch target.")]
+    public PerchManualPathOverride[] perchManualOverrides;
 
-private LineRenderer _lineRenderer;
-private readonly List<Vector3> _pathSamples = new List<Vector3>(64);
-private readonly List<Vector3> _manualNodes = new List<Vector3>(16);
-private readonly Dictionary<string, Transform> _namedWaypointCache = new Dictionary<string, Transform>();
-private readonly HashSet<string> _missingWaypointNames = new HashSet<string>();
+    [System.Serializable]
+    public class PerchManualPathOverride
+    {
+        public Transform perchTarget;
+        [Tooltip("Set to false to fall back to the default manual path data for this perch.")]
+        public bool useManualPath = true;
+        public Transform[] manualWaypoints;
+        public string[] manualWaypointNames;
+        public Vector3[] manualWaypointPositions;
+        public float manualWaypointLift = 0f;
+        public bool manualUseSmoothCurve = true;
+    }
+
+    private LineRenderer _lineRenderer;
+    private readonly List<Vector3> _pathSamples = new List<Vector3>(64);
+    private readonly List<Vector3> _manualNodes = new List<Vector3>(16);
+    private readonly Dictionary<string, Transform> _namedWaypointCache = new Dictionary<string, Transform>();
+    private readonly HashSet<string> _missingWaypointNames = new HashSet<string>();
+    private Transform[] _activeManualWaypoints;
+    private string[] _activeManualWaypointNames;
+    private Vector3[] _activeManualWaypointPositions;
+    private float _activeManualWaypointLift;
+    private bool _activeManualUseSmoothCurve;
+    private Transform _lastManualTarget;
 
     private void Awake()
     {
@@ -85,6 +106,8 @@ private readonly HashSet<string> _missingWaypointNames = new HashSet<string>();
         }
 
         ApplyLineStyle();
+
+        SetActiveManualPath(manualWaypoints, manualWaypointNames, manualWaypointPositions, manualWaypointLift, manualUseSmoothCurve);
     }
 
     private void Start()
@@ -121,6 +144,8 @@ private readonly HashSet<string> _missingWaypointNames = new HashSet<string>();
             HideLine();
             return;
         }
+
+        UpdateActiveManualPath(currentTarget);
 
         Transform anchor = ResolveViewAnchor();
         Vector3 start = GetAnchorPosition(anchor);
@@ -177,18 +202,18 @@ private readonly HashSet<string> _missingWaypointNames = new HashSet<string>();
         _manualNodes.Clear();
         _manualNodes.Add(start);
 
-        bool addedWaypoints = AppendManualWaypoints(manualWaypoints);
+        bool addedWaypoints = AppendManualWaypoints();
         bool addedNamedWaypoints = false;
         bool addedPositionWaypoints = false;
 
         if (!addedWaypoints)
         {
-            addedNamedWaypoints = AppendManualWaypointNames(manualWaypointNames);
+            addedNamedWaypoints = AppendManualWaypointNames();
         }
 
         if (!addedWaypoints && !addedNamedWaypoints)
         {
-            addedPositionWaypoints = AppendManualWaypointPositions(manualWaypointPositions);
+            addedPositionWaypoints = AppendManualWaypointPositions();
         }
 
         _manualNodes.Add(end);
@@ -202,7 +227,7 @@ private readonly HashSet<string> _missingWaypointNames = new HashSet<string>();
 
     private void BuildManualSamples()
     {
-        if (manualUseSmoothCurve && _manualNodes.Count >= 3)
+        if (_activeManualUseSmoothCurve && _manualNodes.Count >= 3)
         {
             BuildCatmullRomSamples();
         }
@@ -212,8 +237,9 @@ private readonly HashSet<string> _missingWaypointNames = new HashSet<string>();
         }
     }
 
-    private bool AppendManualWaypoints(Transform[] waypoints)
+    private bool AppendManualWaypoints()
     {
+        Transform[] waypoints = _activeManualWaypoints;
         if (waypoints == null || waypoints.Length == 0)
             return false;
 
@@ -224,15 +250,16 @@ private readonly HashSet<string> _missingWaypointNames = new HashSet<string>();
             if (waypoint == null)
                 continue;
 
-            Vector3 lifted = waypoint.position + Vector3.up * manualWaypointLift;
+            Vector3 lifted = waypoint.position + Vector3.up * _activeManualWaypointLift;
             _manualNodes.Add(lifted);
             added = true;
         }
         return added;
     }
 
-    private bool AppendManualWaypointNames(string[] waypointNames)
+    private bool AppendManualWaypointNames()
     {
+        string[] waypointNames = _activeManualWaypointNames;
         if (waypointNames == null || waypointNames.Length == 0)
             return false;
 
@@ -247,22 +274,23 @@ private readonly HashSet<string> _missingWaypointNames = new HashSet<string>();
             if (resolved == null)
                 continue;
 
-            Vector3 lifted = resolved.position + Vector3.up * manualWaypointLift;
+            Vector3 lifted = resolved.position + Vector3.up * _activeManualWaypointLift;
             _manualNodes.Add(lifted);
             added = true;
         }
         return added;
     }
 
-    private bool AppendManualWaypointPositions(Vector3[] positions)
+    private bool AppendManualWaypointPositions()
     {
+        Vector3[] positions = _activeManualWaypointPositions;
         if (positions == null || positions.Length == 0)
             return false;
 
         bool added = false;
         for (int i = 0; i < positions.Length; i++)
         {
-            Vector3 lifted = positions[i] + Vector3.up * manualWaypointLift;
+            Vector3 lifted = positions[i] + Vector3.up * _activeManualWaypointLift;
             _manualNodes.Add(lifted);
             added = true;
         }
@@ -511,5 +539,63 @@ private readonly HashSet<string> _missingWaypointNames = new HashSet<string>();
         }
 
         return null;
+    }
+
+    private void UpdateActiveManualPath(Transform currentTarget)
+    {
+        if (!useManualWaypoints)
+            return;
+
+        if (_lastManualTarget == currentTarget)
+            return;
+
+        bool appliedOverride = false;
+        if (currentTarget != null && perchManualOverrides != null)
+        {
+            for (int i = 0; i < perchManualOverrides.Length; i++)
+            {
+                PerchManualPathOverride info = perchManualOverrides[i];
+                if (info == null || info.perchTarget == null)
+                    continue;
+
+                if (info.perchTarget == currentTarget)
+                {
+                    if (info.useManualPath)
+                    {
+                        SetActiveManualPath(
+                            info.manualWaypoints,
+                            info.manualWaypointNames,
+                            info.manualWaypointPositions,
+                            info.manualWaypointLift,
+                            info.manualUseSmoothCurve);
+                    }
+                    else
+                    {
+                        SetActiveManualPath(null, null, null, 0f, manualUseSmoothCurve);
+                    }
+
+                    appliedOverride = true;
+                    break;
+                }
+            }
+        }
+
+        if (!appliedOverride)
+        {
+            SetActiveManualPath(manualWaypoints, manualWaypointNames, manualWaypointPositions, manualWaypointLift, manualUseSmoothCurve);
+        }
+
+        _lastManualTarget = currentTarget;
+    }
+
+    private void SetActiveManualPath(Transform[] waypoints, string[] names, Vector3[] positions, float lift, bool useSmooth)
+    {
+        _activeManualWaypoints = waypoints;
+        _activeManualWaypointNames = names;
+        _activeManualWaypointPositions = positions;
+        _activeManualWaypointLift = lift;
+        _activeManualUseSmoothCurve = useSmooth;
+        _namedWaypointCache.Clear();
+        _missingWaypointNames.Clear();
     }
 }
